@@ -488,14 +488,17 @@ def gen_clips_mc10(rawdata,clipsize=5000,overlap=0.5,verbose=False,startTS=0,end
 
 
 def feature_extraction(clip_data):
-
+    
     features_list = ['RMSX','RMSY','RMSZ','rangeX','rangeY','rangeZ','meanX','meanY','meanZ','varX','varY','varZ',
                     'skewX','skewY','skewZ','kurtX','kurtY','kurtZ','xcor_peakXY','xcorr_peakXZ','xcorr_peakYZ',
                     'xcorr_lagXY','xcorr_lagXZ','xcorr_lagYZ','Dom_freq','Pdom_rel','PSD_mean','PSD_std','PSD_skew',
-                    'PSD_kur','jerk_mean','jerk_std','jerk_skew','jerk_kur','Sen_X','Sen_Y','Sen_Z','RMS_mag','range_mag',
+                    'PSD_kur','PSD_4-8','jerk_mean','jerk_std','jerk_skew','jerk_kur','Sen_X','Sen_Y','Sen_Z','RMS_mag','range_mag',
                     'mean_mag','var_mag','skew_mag','kurt_mag','Sen_mag']
 
-
+    if len(clip_data['data'])<1:
+        clip_data['features'] = pd.DataFrame(columns=features_list)
+        return
+    
     #cycle through all clips for current trial and save dataframe of features for current trial and sensor
     features = []
     for c in range(len(clip_data['data'])):
@@ -558,6 +561,9 @@ def feature_extraction(clip_data):
         #moments of PSD
         Pxx_moments = np.array([np.nanmean(Pxx.values),np.nanstd(Pxx.values),skew(Pxx.values),kurtosis(Pxx.values)])
 
+        #PSD 4-8Hz
+        PSD_4_8 = Pxx[(Pxx.index>=4) & (Pxx.index<=8)].mean()
+        
         #moments of jerk magnitude
         jerk = rawdata_wmag['Accel_Mag'].diff().values
         jerk_moments = np.array([np.nanmean(jerk),np.nanstd(jerk),skew(jerk[~np.isnan(jerk)]),kurtosis(jerk[~np.isnan(jerk)])])
@@ -578,7 +584,7 @@ def feature_extraction(clip_data):
 
         #Assemble features in array
         Y = np.array([RMS_mag,r_mag,mean_mag,var_mag,sk_mag,kurt_mag,sH_mag])
-        X = np.concatenate((RMS,r,mean,var,sk,kurt,xcorr_peak,xcorr_lag,domfreq,Pdom_rel,Pxx_moments,jerk_moments,sH_raw,Y))
+        X = np.concatenate((RMS,r,mean,var,sk,kurt,xcorr_peak,xcorr_lag,domfreq,Pdom_rel,Pxx_moments,PSD_8_12,jerk_moments,sH_raw,Y))
         features.append(X)
 
     F = np.asarray(features) #feature matrix for all clips from current trial
