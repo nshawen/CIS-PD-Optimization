@@ -476,8 +476,13 @@ def gen_clips_mc10(rawdata,clipsize=5000,overlap=0.5,verbose=False,startTS=0,end
                 #resample data
                 c = resample(c,round(downsample*len(c)/basefreq),c.index.values)
                 c = pd.DataFrame(data=c[0],index=c[1].astype('int'))
+                c_ref = c[::-1].copy()
+                c_ref.index = c.index
                 
                 clips.append(c)
+                #clips.append(c.copy()*-1)
+                #clips.append(c_ref)
+                #clips.append(c_ref.copy()*-1)
 
     #store clip length
     clip_len = [clips[c].index[-1]-clips[c].index[0] for c in range(len(clips))] #store the length of each clip
@@ -503,9 +508,19 @@ def feature_extraction(clip_data):
     features = []
     for c in range(len(clip_data['data'])):
         rawdata = clip_data['data'][c]
+        rawdata_unfilt = rawdata.copy()
+        
+        Fs = np.mean(1/(np.diff(rawdata.index)/1000)) #sampling rate
+        cutoff_norm = 0.75/(0.5*Fs)
+        if cutoff_norm>1:
+            print(Fs,cutoff_norm)
+            continue
+        
+        rawdata = filterdata(rawdata)
+        
         #acceleration magnitude
-        rawdata_wmag = rawdata.copy()
-        rawdata_wmag['Accel_Mag']=np.sqrt((rawdata**2).sum(axis=1))
+        rawdata_wmag = rawdata_unfilt
+        rawdata_wmag['Accel_Mag']=np.sqrt((rawdata_unfilt**2).sum(axis=1))
 
         #extract features on current clip
 
@@ -584,7 +599,7 @@ def feature_extraction(clip_data):
 
         #Assemble features in array
         Y = np.array([RMS_mag,r_mag,mean_mag,var_mag,sk_mag,kurt_mag,sH_mag])
-        X = np.concatenate((RMS,r,mean,var,sk,kurt,xcorr_peak,xcorr_lag,domfreq,Pdom_rel,Pxx_moments,PSD_8_12,jerk_moments,sH_raw,Y))
+        X = np.concatenate((RMS,r,mean,var,sk,kurt,xcorr_peak,xcorr_lag,domfreq,Pdom_rel,Pxx_moments,PSD_4_8,jerk_moments,sH_raw,Y))
         features.append(X)
 
     F = np.asarray(features) #feature matrix for all clips from current trial
