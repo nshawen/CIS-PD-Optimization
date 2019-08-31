@@ -9,7 +9,7 @@ from scipy.stats import skew, kurtosis, entropy
 from scipy.signal import butter, welch, filtfilt, resample
 import math
 import nolds
-
+import time
 
 #extract clips for accelerometer and gyro data (allows selecting start and end fraction)
 #lentol is the % of the intended clipsize below which clip is not used
@@ -495,10 +495,17 @@ def gen_clips_mc10(rawdata,clipsize=5000,overlap=0.5,verbose=False,startTS=0,end
 def feature_extraction(clip_data):
     
     features_list = ['RMSX','RMSY','RMSZ','rangeX','rangeY','rangeZ','meanX','meanY','meanZ','varX','varY','varZ',
-                    'skewX','skewY','skewZ','kurtX','kurtY','kurtZ','xcor_peakXY','xcorr_peakXZ','xcorr_peakYZ',
-                    'xcorr_lagXY','xcorr_lagXZ','xcorr_lagYZ','Dom_freq','Pdom_rel','PSD_mean','PSD_std','PSD_skew',
-                    'PSD_kur','PSD_4-8','jerk_mean','jerk_std','jerk_skew','jerk_kur','Sen_X','Sen_Y','Sen_Z','RMS_mag','range_mag',
-                    'mean_mag','var_mag','skew_mag','kurt_mag','Sen_mag']
+                    'skewX','skewY','skewZ','kurtX','kurtY','kurtZ','Sen_X','Sen_Y','Sen_Z',
+                    'xcor_peakXY','xcorr_peakXZ','xcorr_peakYZ','xcorr_lagXY','xcorr_lagXZ','xcorr_lagYZ',
+                    'Dom_freqX','Pdom_relX','PSD_meanX','PSD_stdX','PSD_skewX','PSD_kurX',
+                    'Dom_freqY','Pdom_relY','PSD_meanY','PSD_stdY','PSD_skewY','PSD_kurY',
+                    'Dom_freqZ','Pdom_relZ','PSD_meanZ','PSD_stdZ','PSD_skewZ','PSD_kurZ',
+                    'jerk_meanX','jerk_stdX','jerk_skewX','jerk_kurX',
+                    'jerk_meanY','jerk_stdY','jerk_skewY','jerk_kurY',
+                    'jerk_meanZ','jerk_stdZ','jerk_skewZ','jerk_kurZ',
+                    'RMS_mag','range_mag','mean_mag','var_mag','skew_mag','kurt_mag','Sen_mag',
+                    'Dom_freq_mag','Pdom_rel_mag','PSD_mean_mag','PSD_std_mag','PSD_skew_mag','PSD_kur_mag',
+                    'jerk_mean_mag','jerk_std_mag','jerk_skew_mag','jerk_kur_mag']
 
     if len(clip_data['data'])<1:
         clip_data['features'] = pd.DataFrame(columns=features_list)
@@ -506,7 +513,10 @@ def feature_extraction(clip_data):
     
     #cycle through all clips for current trial and save dataframe of features for current trial and sensor
     features = []
+    ts = []
     for c in range(len(clip_data['data'])):
+        t = []
+        t1 = time.time()
         rawdata = clip_data['data'][c]
         rawdata_unfilt = rawdata.copy()
         
@@ -517,37 +527,58 @@ def feature_extraction(clip_data):
             continue
         
         rawdata = filterdata(rawdata)
+        t2 = time.time()
+        t.append(t2-t1) #append shared preprocessing time
         
+        
+        t1 = time.time()
         #acceleration magnitude
         rawdata_wmag = rawdata_unfilt
         rawdata_wmag['Accel_Mag']=np.sqrt((rawdata_unfilt**2).sum(axis=1))
+        t2 = time.time()
+        t.append(t2-t1) #append magnitude computation time
 
+        
         #extract features on current clip
 
+        t1 = time.time()
         #Root mean square of signal on each axis
         N = len(rawdata)
         RMS = 1/N*np.sqrt(np.asarray(np.sum(rawdata**2,axis=0)))
-        
-        RMS_mag = 1/N*np.sqrt(np.sum(rawdata_wmag['Accel_Mag']**2,axis=0))
 
         #range on each axis
         min_xyz = np.min(rawdata,axis=0)
         max_xyz = np.max(rawdata,axis=0)
         r = np.asarray(max_xyz-min_xyz)
         
-        r_mag = np.max(rawdata_wmag['Accel_Mag']) - np.min(rawdata_wmag['Accel_Mag'])
-
         #Moments on each axis
         mean = np.asarray(np.mean(rawdata,axis=0))
         var = np.asarray(np.std(rawdata,axis=0))
         sk = skew(rawdata)
         kurt = kurtosis(rawdata)
-        
-        mean_mag = np.mean(rawdata_wmag['Accel_Mag'])
-        var_mag = np.std(rawdata_wmag['Accel_Mag'])
-        sk_mag = skew(rawdata_wmag['Accel_Mag'])
-        kurt_mag = kurtosis(rawdata_wmag['Accel_Mag'])
 
+        t2 = time.time()
+        t.append(t2-t1) # append time domain features
+        
+        
+        t1 = time.time()
+        #sample entropy raw data (magnitude) and FFT
+        sH_raw = []; #sH_fft = []
+        
+        for a in range(3):
+            x = rawdata.iloc[:,a]
+            n = len(x) #number of samples in clip
+            Fs = np.mean(1/(np.diff(x.index)/1000)) #sampling rate in clip
+            sH_raw.append(nolds.sampen(x)) #samp entr raw data
+            #for now disable SH on fft
+            # f,Pxx_den = welch(x,Fs,nperseg=min(256,n/4))
+            # sH_fft.append(nolds.sampen(Pxx_den)) #samp entr fft
+            
+        t2 = time.time()
+        t.append(t2-t1) # append Sen features time
+        
+        
+        t1 = time.time()
         #Cross-correlation between axes pairs
         xcorr_xy = np.correlate(rawdata.iloc[:,0],rawdata.iloc[:,1],mode='same')
         # xcorr_xy = xcorr_xy/np.abs(np.sum(xcorr_xy)) #normalize values
@@ -568,39 +599,81 @@ def feature_extraction(clip_data):
         xcorr_peak = np.array([xcorr_peak_xy,xcorr_peak_xz,xcorr_peak_yz])
         xcorr_lag = np.array([xcorr_lag_xy,xcorr_lag_xz,xcorr_lag_yz])
 
-        #Dominant freq and relative magnitude (on acc magnitude)
-        Pxx = power_spectra_welch(rawdata_wmag,fm=0,fM=10)
-        domfreq = np.asarray([Pxx.iloc[:,-1].idxmax()])
-        Pdom_rel = Pxx.loc[domfreq].iloc[:,-1].values/Pxx.iloc[:,-1].sum() #power at dominant freq rel to total
-
-        #moments of PSD
-        Pxx_moments = np.array([np.nanmean(Pxx.values),np.nanstd(Pxx.values),skew(Pxx.values),kurtosis(Pxx.values)])
-
-        #PSD 4-8Hz
-        PSD_4_8 = Pxx[(Pxx.index>=4) & (Pxx.index<=8)].mean()
+        t2=time.time()
+        t.append(t2-t1) # append xcorr computation time
         
-        #moments of jerk magnitude
-        jerk = rawdata_wmag['Accel_Mag'].diff().values
-        jerk_moments = np.array([np.nanmean(jerk),np.nanstd(jerk),skew(jerk[~np.isnan(jerk)]),kurtosis(jerk[~np.isnan(jerk)])])
-
-        #sample entropy raw data (magnitude) and FFT
-        sH_raw = []; sH_fft = []
-
+        
+        t1 = time.time()
+        axes_F = np.array([])
         for a in range(3):
             x = rawdata.iloc[:,a]
             n = len(x) #number of samples in clip
             Fs = np.mean(1/(np.diff(x.index)/1000)) #sampling rate in clip
-            sH_raw.append(nolds.sampen(x)) #samp entr raw data
-            #for now disable SH on fft
-            # f,Pxx_den = welch(x,Fs,nperseg=min(256,n/4))
-            # sH_fft.append(nolds.sampen(Pxx_den)) #samp entr fft
-            
-        sH_mag = nolds.sampen(rawdata_wmag['Accel_Mag'])
+            f,Pxx_den = welch(x,Fs,nperseg=min(256,n))
+            Pxx = pd.DataFrame(data=Pxx_den,index=f,columns=['PSD'])
+            F_rel = np.asarray([Pxx.iloc[Pxx.index<12,-1].idxmax()])
+            P_rel = Pxx.loc[F_rel].iloc[:,-1].values/Pxx.iloc[Pxx.index<12,-1].sum()
+            F_moments = np.array([np.nanmean(Pxx.values),np.nanstd(Pxx.values),skew(Pxx.values),kurtosis(Pxx.values)])
+            axes_F = np.concatenate((axes_F,F_rel,P_rel,F_moments))
+        
+        t2 = time.time()
+        t.append(t2-t1) # append frequency axes computation time
+        
+        
+        t1 = time.time()
+        #moments of jerk axes
+        axes_D = np.array([])
+        for a in range(3):
+            ax = rawdata.iloc[:,a].diff().values
+            ax_moments = np.array([np.nanmean(ax),np.nanstd(ax),skew(ax[~np.isnan(ax)]),kurtosis(ax[~np.isnan(ax)])])
+            axes_D = np.concatenate([axes_D,ax_moments])
+        t2 = time.time()
+        t.append(t2-t1) # append axes derivative computation time
 
+        
+        t1 = time.time()
+        RMS_mag = 1/N*np.sqrt(np.sum(rawdata_wmag['Accel_Mag']**2,axis=0))
+        r_mag = np.max(rawdata_wmag['Accel_Mag']) - np.min(rawdata_wmag['Accel_Mag'])
+        mean_mag = np.mean(rawdata_wmag['Accel_Mag'])
+        var_mag = np.std(rawdata_wmag['Accel_Mag'])
+        sk_mag = skew(rawdata_wmag['Accel_Mag'])
+        kurt_mag = kurtosis(rawdata_wmag['Accel_Mag'])
+        t2 = time.time()
+        t.append(t2-t1) # append magnitude time domain computation time
+        
+        
+        t1 = time.time()
+        sH_mag = nolds.sampen(rawdata_wmag['Accel_Mag'])
+        t2 = time.time()
+        t.append(t2-t1) # append magnitude entropy computation time
+
+        
+        t1 = time.time()
+        #Dominant freq and relative magnitude (on acc magnitude)
+        Pxx = power_spectra_welch(rawdata_wmag,fm=0,fM=Fs)
+        domfreq = np.asarray([Pxx.iloc[Pxx.index<12,-1].idxmax()])
+        Pdom_rel = Pxx.loc[domfreq].iloc[:,-1].values/Pxx.iloc[Pxx.index<12,-1].sum() #power at dominant freq rel to total
+
+        #moments of PSD
+        Pxx_moments = np.array([np.nanmean(Pxx.values),np.nanstd(Pxx.values),skew(Pxx.values),kurtosis(Pxx.values)])
+        t2 = time.time()
+        t.append(t2-t1) # append magnitude frequency computation time
+        
+        
+        t1 = time.time()
+        #moments of jerk magnitude
+        jerk = rawdata_wmag['Accel_Mag'].diff().values
+        jerk_moments = np.array([np.nanmean(jerk),np.nanstd(jerk),skew(jerk[~np.isnan(jerk)]),kurtosis(jerk[~np.isnan(jerk)])])
+        t2 = time.time()
+        t.append(t2-t1) # append magnitude derivative computation time
+        
         #Assemble features in array
         Y = np.array([RMS_mag,r_mag,mean_mag,var_mag,sk_mag,kurt_mag,sH_mag])
-        X = np.concatenate((RMS,r,mean,var,sk,kurt,xcorr_peak,xcorr_lag,domfreq,Pdom_rel,Pxx_moments,PSD_4_8,jerk_moments,sH_raw,Y))
+        X = np.concatenate((RMS,r,mean,var,sk,kurt,sH_raw,xcorr_peak,xcorr_lag,axes_F,axes_D,Y,domfreq,Pdom_rel,Pxx_moments,jerk_moments))
         features.append(X)
+        ts.append(t)
 
     F = np.asarray(features) #feature matrix for all clips from current trial
     clip_data['features'] = pd.DataFrame(data=F,columns=features_list,dtype='float32')
+    
+    return ts, F.shape[0]
